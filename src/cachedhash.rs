@@ -1,4 +1,5 @@
 use std::borrow::{Borrow, BorrowMut};
+use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{BuildHasher, BuildHasherDefault, Hash, Hasher};
 use std::num::NonZeroU64;
@@ -38,16 +39,16 @@ use crate::atomic::AtomicOptionNonZeroU64;
 ///
 /// You can run `cargo bench` to see some simple naive benchmarks comparing
 /// a plain `HashSet` with a `HashSet` that stores values wrapped in [`CachedHash`].
-/// 
+///
 /// # Details
-/// 
+///
 /// Whenever the hash is requested if it is not already computed it is computed
 /// using the hasher provided by the `BH` [`BuildHasher`] and stored as an "internal
 /// hash". Note that this is not the same as the hash returned by the [`Hash`] implementation.
 /// That implementation feeds the internal hash into the hasher provided to the `hash`
 /// function. This means that the resulting hash is the hash of the hash of the stored
 /// value.
-/// 
+///
 /// However, there is one more issue. If we wanted to represent both the full 
 /// range of hash values and the possibility of the hash not being computed yet,
 /// we would need 65 bits. In order to save space we need to reserve one value 
@@ -56,7 +57,7 @@ use crate::atomic::AtomicOptionNonZeroU64;
 /// implementation does this by changing the "internal hash" from 0 to 1 if it ends
 /// up being zero. This is generally not an issue. However, if you are using a custom hasher
 /// this might affect you.
-/// 
+///
 /// This behaviour is not guaranteed and may change in the future. If this
 /// behaviour does not fit for your use case please open an issue.
 #[derive(Debug)]
@@ -152,6 +153,18 @@ impl<T: Eq + Hash, BH: BuildHasher> PartialEq for CachedHash<T, BH> {
 }
 
 impl<T: Eq + Hash, BH: BuildHasher> Eq for CachedHash<T, BH> {}
+
+impl<T: Eq + PartialOrd + Hash, BH: BuildHasher> PartialOrd for CachedHash<T, BH> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.value.partial_cmp(&other.value)
+    }
+}
+
+impl<T: Ord + Hash, BH: BuildHasher> Ord for CachedHash<T, BH> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.cmp(&other.value)
+    }
+}
 
 impl<T: Eq + Hash, BH: BuildHasher> Hash for CachedHash<T, BH> {
     fn hash<H2: Hasher>(&self, state: &mut H2) {
@@ -260,9 +273,9 @@ mod tests {
         // This way it would only make this test useless.
         assert!(
             calculate_hash(&"foo".to_string()) == 0 || // unlikely case when 0 gets internally converted to 1
-            calculate_hash(&"fooa".to_string()) == 0 || // ditto
-            calculate_hash(&"foo".to_string()) == calculate_hash(&"fooa".to_string()) || // unlikely hash collision
-            hash != calculate_hash(&foo)
+                calculate_hash(&"fooa".to_string()) == 0 || // ditto
+                calculate_hash(&"foo".to_string()) == calculate_hash(&"fooa".to_string()) || // unlikely hash collision
+                hash != calculate_hash(&foo)
         );
     }
 
